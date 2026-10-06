@@ -1,0 +1,124 @@
+#!/bin/sh
+# Fake ip with state in $STUB_STATE (links, addrs, routes, rules). Only the forms of the
+# wgc.sh calls are supported; anything else logs UNSUPPORTED and exits 2.
+S=${STUB_STATE:?}
+L=${STUB_LOG:?}
+LINE="ip $*"
+printf '%s\n' "$LINE" >> "$L"
+if [ -n "$STUB_FAIL" ] && printf '%s\n' "$LINE" | grep -Eq -- "$STUB_FAIL"; then exit 1; fi
+if [ -n "$STUB_DELAY" ] && printf '%s\n' "$LINE" | grep -Eq -- "$STUB_DELAY"; then /bin/sleep "${STUB_DELAY_SECS:-2}"; fi
+
+bad() { printf '%s\n' "UNSUPPORTED $LINE" >> "$L"; exit 2; }
+have_link() { awk -v x="$1" '$1 == x { f = 1 } END { exit f ? 0 : 1 }' "$S/links"; }
+# replace file $1 with the output of the awk program already written to $1.tmp
+commit() { mv "$S/$1.tmp" "$S/$1"; }
+
+case "$1 $2 $3" in
+"link show dev")            # link show dev X
+    [ $# -eq 4 ] || bad
+    have_link "$4"; exit $?
+    ;;
+"link add dev")             # link add dev X type wireguard
+    [ $# -eq 6 ] && [ "$5" = type ] && [ "$6" = wireguard ] || bad
+    have_link "$4" && { echo "RTNETLINK answers: File exists" >&2; exit 2; }
+    printf '%s 1500 down\n' "$4" >> "$S/links"
+    exit 0
+    ;;
+"link del dev")             # link del dev X : also drops its addresses and routes
+    [ $# -eq 4 ] || bad
+    have_link "$4" || { echo "Cannot find device \"$4\"" >&2; exit 1; }
+    awk -v x="$4" '$1 != x' "$S/links" > "$S/links.tmp" && commit links
+    awk -v x="$4" '$2 != x' "$S/addrs" > "$S/addrs.tmp" && commit addrs
+    awk -v x="$4" '!($2 == "dev" && $3 == x)' "$S/routes" > "$S/routes.tmp" && commit routes
+    exit 0
+    ;;
+"link set dev")             # link set dev X mtu N up
+    [ $# -eq 7 ] && [ "$5" = mtu ] && [ "$7" = up ] || bad
+    have_link "$4" || { echo "Cannot find device \"$4\"" >&2; exit 1; }
+    awk -v x="$4" -v m="$6" '$1 == x { print $1, m, "up"; next } { print }' "$S/links" > "$S/links.tmp" && commit links
+    exit 0
+    ;;
+"-4 address replace")       # -4 address replace A dev X
+    [ $# -eq 6 ] && [ "$5" = dev ] || bad
+    have_link "$6" || { echo "Cannot find device \"$6\"" >&2; exit 1; }
+    awk -v a="$4" -v x="$6" '!($1 == a && $2 == x)' "$S/addrs" > "$S/addrs.tmp" && commit addrs
+    printf '%s %s\n' "$4" "$6" >> "$S/addrs"
+    exit 0
+    ;;
+"-4 address del")           # -4 address del A dev X : exact line, exit 2 if absent
+    [ $# -eq 6 ] && [ "$5" = dev ] || bad
+    awk -v a="$4" -v x="$6" '!d && $1 == a && $2 == x { d = 1; next } { print } END { exit d ? 0 : 1 }' "$S/addrs" > "$S/addrs.tmp"
+    if [ $? -eq 0 ]; then commit addrs; exit 0; fi
+    rm -f "$S/addrs.tmp"; echo "RTNETLINK answers: Cannot assign requested address" >&2; exit 2
+    ;;
+"-4 route del")             # -4 route del C dev X table T : exact line, exit 2 if absent
+    [ $# -eq 8 ] && [ "$5" = dev ] && [ "$7" = table ] || bad
+    awk -v c="$4" -v x="$6" -v t="$8" '!d && $1 == c && $3 == x && $5 == t { d = 1; next } { print } END { exit d ? 0 : 1 }' "$S/routes" > "$S/routes.tmp"
+    if [ $? -eq 0 ]; then commit routes; exit 0; fi
+    rm -f "$S/routes.tmp"; echo "RTNETLINK answers: No such process" >&2; exit 2
+    ;;
+"-4 -o addr")               # -4 -o addr show dev X
+    [ $# -eq 6 ] && [ "$4" = show ] && [ "$5" = dev ] || bad
+    if [ "$6" = br0 ]; then
+        printf '2: br0    inet 192.168.2.1/24 brd 192.168.2.255 scope global br0\\       valid_lft forever preferred_lft forever\n'
+        exit 0
+    fi
+    awk -v x="$6" '$2 == x { printf "9: %s    inet %s scope global %s\n", x, $1, x }' "$S/addrs"
+    exit 0
+    ;;
+"-4 route replace")         # -4 route replace C dev X table T
+    [ $# -eq 8 ] && [ "$5" = dev ] && [ "$7" = table ] || bad
+    have_link "$6" || { echo "Cannot find device \"$6\"" >&2; exit 1; }
+    awk -v c="$4" -v t="$8" '!($1 == c && $5 == t)' "$S/routes" > "$S/routes.tmp" && commit routes
+    printf '%s dev %s table %s\n' "$4" "$6" "$8" >> "$S/routes"
+    exit 0
+    ;;
+"-4 route show")            # -4 route show table T
+    [ $# -eq 5 ] && [ "$4" = table ] || bad
+    awk -v t="$5" '$5 == t { print $1, $2, $3 }' "$S/routes"
+    exit 0
+    ;;
+"-4 rule show")             # -4 rule show : "<prio>:<TAB><selector> lookup <T>" ascending
+    [ $# -eq 3 ] || bad
+    sort -n "$S/rules" | awk '{ p = $1; sub(/^[0-9]+ /, ""); printf "%s:\t%s\n", p, $0 }'
+    exit 0
+    ;;
+"-4 rule add")              # -4 rule add ... priority P  (state line: "P <rest as given>")
+    shift 3
+    prio=; rest=
+    while [ $# -gt 0 ]; do
+        if [ "$1" = priority ]; then
+            [ $# -ge 2 ] || bad
+            prio=$2; shift 2; continue
+        fi
+        rest="${rest:+$rest }$1"; shift
+    done
+    case "$prio" in ""|*[!0-9]*) bad ;; esac
+    [ -n "$rest" ] || bad
+    if grep -Fxq -- "$prio $rest" "$S/rules"; then
+        echo "RTNETLINK answers: File exists" >&2; exit 2
+    fi
+    printf '%s %s\n' "$prio" "$rest" >> "$S/rules"
+    exit 0
+    ;;
+"-4 rule del")              # -4 rule del priority P | table T : first match, exit 2 if none
+    [ $# -eq 5 ] || bad
+    case "$4" in
+    priority)
+        awk -v p="$5" '!d && $1 == p { d = 1; next } { print } END { exit d ? 0 : 1 }' "$S/rules" > "$S/rules.tmp"
+        ;;
+    table)
+        awk -v t="$5" 'function m(  i) { for (i = 2; i < NF; i++) if ($i == "lookup" && $(i+1) == t) return 1; return 0 }
+            !d && m() { d = 1; next } { print } END { exit d ? 0 : 1 }' "$S/rules" > "$S/rules.tmp"
+        ;;
+    *) bad ;;
+    esac
+    if [ $? -eq 0 ]; then commit rules; exit 0; fi
+    rm -f "$S/rules.tmp"
+    echo "RTNETLINK answers: No such file or directory" >&2
+    exit 2
+    ;;
+*)
+    bad
+    ;;
+esac

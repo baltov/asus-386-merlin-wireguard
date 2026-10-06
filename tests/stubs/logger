@@ -1,0 +1,4 @@
+#!/bin/sh
+# Fake logger: only records the call (never fails, ignores STUB_FAIL).
+printf '%s\n' "logger $*" >> "${STUB_LOG:?}"
+exit 0

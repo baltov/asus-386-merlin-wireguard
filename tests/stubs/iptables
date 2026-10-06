@@ -1,0 +1,45 @@
+#!/bin/sh
+# Fake iptables. State: $STUB_STATE/iptables, one "<table> <chain> <spec>" per line.
+# Supported: -t T -C|-I|-A|-D CHAIN SPEC...   Anything else: UNSUPPORTED, exit 2.
+S=${STUB_STATE:?}
+L=${STUB_LOG:?}
+LINE="iptables $*"
+printf '%s\n' "$LINE" >> "$L"
+if [ -n "$STUB_FAIL" ] && printf '%s\n' "$LINE" | grep -Eq -- "$STUB_FAIL"; then exit 1; fi
+if [ -n "$STUB_DELAY" ] && printf '%s\n' "$LINE" | grep -Eq -- "$STUB_DELAY"; then /bin/sleep "${STUB_DELAY_SECS:-2}"; fi
+F="$S/iptables"
+
+if [ "$1" = "-t" ] && [ $# -eq 4 ] && [ "$3" = "-S" ]; then
+    # -t T -S CHAIN : one "-A CHAIN <spec>" per state line, insertion order
+    awk -v t="$2" -v c="$4" '$1 == t && $2 == c { l = $0; sub(/^[^ ]+ [^ ]+ ?/, "", l); print "-A " c " " l }' "$F"
+    exit 0
+fi
+if [ "$1" != "-t" ] || [ $# -lt 5 ]; then
+    printf '%s\n' "UNSUPPORTED iptables $*" >> "$L"
+    exit 2
+fi
+TBL=$2; OP=$3; CHAIN=$4
+shift 4
+REC="$TBL $CHAIN $*"
+
+case "$OP" in
+-C)
+    grep -Fxq -- "$REC" "$F"
+    exit $?
+    ;;
+-I|-A)
+    printf '%s\n' "$REC" >> "$F"
+    exit 0
+    ;;
+-D)
+    # remove exactly one matching line; exit 1 if none
+    if REC="$REC" awk '!d && $0 == ENVIRON["REC"] { d = 1; next } { print } END { exit d ? 0 : 1 }' "$F" > "$F.tmp"
+    then mv "$F.tmp" "$F"; exit 0
+    else rm -f "$F.tmp"; exit 1
+    fi
+    ;;
+*)
+    printf '%s\n' "UNSUPPORTED $LINE" >> "$L"
+    exit 2
+    ;;
+esac

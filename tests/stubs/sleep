@@ -1,0 +1,13 @@
+#!/bin/sh
+# Fake sleep: ignores its argument and sleeps STUB_SLEEP seconds (default 0; fractions ok)
+# using the real binary by absolute path (no recursion).
+# If STUB_SLEEP_LONG is set and the first argument is an integer >= 10, sleeps that many seconds instead.
+printf '%s\n' "sleep $*" >> "${STUB_LOG:?}" 2>/dev/null
+secs=${STUB_SLEEP:-0}
+if [ -n "$STUB_SLEEP_LONG" ]; then
+    case "$1" in
+    ''|*[!0-9]*) ;;
+    *) [ "$1" -ge 10 ] && secs=$STUB_SLEEP_LONG ;;
+    esac
+fi
+exec /bin/sleep "$secs"

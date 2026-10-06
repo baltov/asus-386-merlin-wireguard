@@ -1,0 +1,11 @@
+#!/bin/sh
+# Fake flock: logs the call, never locks.
+#   flock -x <file> <prog> <args...>  : logs, then EXECUTES <prog> <args...> (the locked section runs under test)
+#   flock -x <fd> / flock -u <fd>     : logs, returns 0
+printf '%s\n' "flock $*" >> "${STUB_LOG:?}"
+if [ "$1" = -x ] && [ $# -ge 3 ]; then
+    case $2 in
+    ''|*[!0-9]*) shift 2; exec "$@" ;;
+    esac
+fi
+exit 0

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Not available on the real router (BusyBox build): behave like a missing command, leave a trace.
+[ -n "$STUB_LOG" ] && printf '%s\n' "UNSUPPORTED id $*" >> "$STUB_LOG" 2>/dev/null
+echo "id: not found" >&2
+exit 127

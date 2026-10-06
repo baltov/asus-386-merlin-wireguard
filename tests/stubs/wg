@@ -1,0 +1,56 @@
+#!/bin/sh
+# Fake wg. Supported: setconf|syncconf IF FILE ; show IF ; show IF endpoints ;
+# show IF latest-handshakes ; show IF transfer. Never prints private or preshared keys.
+S=${STUB_STATE:?}
+L=${STUB_LOG:?}
+LINE="wg $*"
+printf '%s\n' "$LINE" >> "$L"
+if [ -n "$STUB_FAIL" ] && printf '%s\n' "$LINE" | grep -Eq -- "$STUB_FAIL"; then exit 1; fi
+if [ -n "$STUB_DELAY" ] && printf '%s\n' "$LINE" | grep -Eq -- "$STUB_DELAY"; then /bin/sleep "${STUB_DELAY_SECS:-2}"; fi
+
+bad() { printf '%s\n' "UNSUPPORTED $LINE" >> "$L"; exit 2; }
+have_link() { awk -v x="$1" '$1 == x { f = 1 } END { exit f ? 0 : 1 }' "$S/links"; }
+# public key of the peer in the last setconf.copy (public keys are not secret)
+pubkey() {
+    k=$(sed -n 's/^[Pp][Uu][Bb][Ll][Ii][Cc][Kk][Ee][Yy][[:space:]]*=[[:space:]]*//p' "$S/setconf.copy" 2>/dev/null | tr -d '\r' | head -1)
+    printf '%s' "${k:-NOPEER}"
+}
+endpoint() {
+    if [ -n "${STUB_ENDPOINT+x}" ]; then printf '%s' "$STUB_ENDPOINT"; return; fi
+    e=$(sed -n 's/^[Ee][Nn][Dd][Pp][Oo][Ii][Nn][Tt][[:space:]]*=[[:space:]]*//p' "$S/setconf.copy" 2>/dev/null | tr -d '\r' | head -1)
+    if printf '%s\n' "$e" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$'
+    then printf '%s' "$e"; else printf '%s' "(none)"; fi
+}
+
+case "$1" in
+setconf|syncconf)
+    [ $# -eq 3 ] || bad
+    have_link "$2" || { echo "wg: Unable to access interface: No such device" >&2; exit 1; }
+    [ -f "$3" ] || { echo "wg: cannot read $3" >&2; exit 1; }
+    cp "$3" "$S/setconf.copy"
+    m=$(stat -c %a "$3" 2>/dev/null || stat -f %Lp "$3")
+    printf '%s\n' "$m" > "$S/setconf.mode"
+    printf '%s\n' "$1" > "$S/setconf.verb"
+    exit 0
+    ;;
+show)
+    case $# in
+    2)
+        have_link "$2" || exit 1
+        printf 'interface: %s\n  listening port: 51820\n\npeer: %s\n  endpoint: %s\n' "$2" "$(pubkey)" "$(endpoint)"
+        exit 0
+        ;;
+    3)
+        have_link "$2" || exit 1
+        case "$3" in
+        endpoints) printf '%s\t%s\n' "$(pubkey)" "$(endpoint)"; exit 0 ;;
+        latest-handshakes) printf '%s\t%s\n' "$(pubkey)" "${STUB_HANDSHAKE:-$(date +%s)}"; exit 0 ;;
+        transfer) printf '%s\t%s\t%s\n' "$(pubkey)" "${STUB_WG_RX:-0}" "${STUB_WG_TX:-0}"; exit 0 ;;
+        *) bad ;;
+        esac
+        ;;
+    *) bad ;;
+    esac
+    ;;
+*) bad ;;
+esac

@@ -1,0 +1,13 @@
+# router backups and real confs: never publish
+backup/
+secrets/
+*.conf
+!tests/fixtures/*.conf
+!tests/ui/page/fixtures/*.conf
+
+# test output and dependencies
+tests/ui/page/node_modules/
+tests/ui/page/out/
+tests/ui/page/test-results/
+
+.DS_Store

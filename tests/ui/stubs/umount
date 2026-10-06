@@ -1,0 +1,4 @@
+#!/bin/sh
+# Fake umount: only logs, never touches the system. Accepts any arguments (e.g. flock -x 386, flock -u 386).
+printf '%s\n' "umount $*" >> "${STUB_LOG:?}"
+exit 0

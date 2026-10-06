@@ -1,0 +1,7 @@
+#!/bin/sh
+# Fake modprobe: log the call, honour STUB_FAIL, succeed.
+LINE="modprobe $*"
+printf '%s\n' "$LINE" >> "${STUB_LOG:?}"
+if [ -n "$STUB_FAIL" ] && printf '%s\n' "$LINE" | grep -Eq -- "$STUB_FAIL"; then exit 1; fi
+if [ -n "$STUB_DELAY" ] && printf '%s\n' "$LINE" | grep -Eq -- "$STUB_DELAY"; then /bin/sleep "${STUB_DELAY_SECS:-2}"; fi
+exit 0

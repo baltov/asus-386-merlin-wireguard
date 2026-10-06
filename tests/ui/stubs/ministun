@@ -1,0 +1,7 @@
+#!/bin/sh
+# Fake ministun (firmware STUN tool) for the exit-IP lookup: logs the call, honours STUB_FAIL
+# (log, then exit 1, no output), otherwise prints ${STUB_STUN_OUT:-203.0.113.77}. No network.
+printf '%s\n' "ministun $*" >> "${STUB_LOG:?}"
+if [ -n "$STUB_FAIL" ] && printf '%s\n' "ministun $*" | grep -Eq -- "$STUB_FAIL"; then exit 1; fi
+printf '%s\n' "${STUB_STUN_OUT:-203.0.113.77}"
+exit 0

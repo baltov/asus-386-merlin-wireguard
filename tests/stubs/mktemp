@@ -1,0 +1,5 @@
+#!/bin/sh
+# Not available on the real router (BusyBox build): behave like a missing command, leave a trace.
+[ -n "$STUB_LOG" ] && printf '%s\n' "UNSUPPORTED mktemp $*" >> "$STUB_LOG" 2>/dev/null
+echo "mktemp: not found" >&2
+exit 127
