@@ -330,3 +330,7 @@ Without the MARK rules a tunnel gets a handshake but stalls after a few packets,
 ## Development
 
 The test suites run on your computer and never touch a router; how to run them and how they work is in [docs/development.md](docs/development.md).
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).
