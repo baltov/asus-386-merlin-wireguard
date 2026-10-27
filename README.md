@@ -30,7 +30,7 @@ Compared with the alternatives on 386, this project adds per-device and per-dest
   Both must print a path. The script has been tested only on an RT-AC86U with 386.14_2 (`wireguard.ko` 1.0.20210124, `wg` 1.0.20200827).
 - SSH access and JFFS custom scripts enabled (Administration, System, "Enable JFFS custom scripts and configs" = Yes).
 - The LAN on the bridge `br0`. The script reads your LAN network from `br0` itself; another interface can be set with `WGC_LAN_IF`.
-- For the web page only: a USB drive. Merlin runs `/jffs/scripts/post-mount` when a USB partition is mounted, and that is where the page puts itself back into the menu after a reboot. Without a USB drive the tunnels still work and the page still installs, but after every reboot you have to run `sh /jffs/addons/wgc/wgcui.sh mount` yourself to get the page back.
+- The web page restores itself at boot through `/jffs/scripts/services-start`; no USB drive is required. It also restores itself from `/jffs/scripts/post-mount` when a USB partition is mounted. Both hooks can run without creating duplicate menu entries.
 
 ## Installation
 
@@ -124,13 +124,13 @@ sh /jffs/addons/wgc/wgcui.sh set-level full
 
 The files must be in `/jffs/addons/wgc/`; the lines added to `/jffs/scripts` use that path.
 
-- `install` copies the page into a free user page slot (`/www/user/userN.asp`), adds "WireGuard Client" to the VPN menu, and adds one line ending in `# wgc` to `/jffs/scripts/post-mount` so the page comes back after a reboot (see Requirements about the USB drive).
+- `install` copies the page into a free user page slot (`/www/user/userN.asp`), adds "WireGuard Client" to the VPN menu, and adds one line ending in `# wgc` to each of `/jffs/scripts/services-start` and `/jffs/scripts/post-mount` so the page comes back after a reboot, even without USB. To upgrade an existing installation, copy the new `wgcui.sh` and run `install` again.
 - `enable-events` adds one line to `/jffs/scripts/service-event`. Through it the firmware hands the page's actions to `wgcui.sh`. Without it the page shows status only after `install` and its buttons get no answer.
 - `set-level full` allows the page to start and stop tunnels and to upload and delete confs. See [Levels](#levels).
 
 Reload the web UI to see the menu entry.
 
-The tools also create a few files of their own: `wgc.sh` keeps its lock and timer state in `/tmp/wgc.run` (RAM only), `wgcui.sh` writes the page data `status.js` into a web directory next to the page, and `.bak` copies of `post-mount` and `service-event` are kept in `/jffs/addons/wgc/` before a line is added to them.
+The tools also create a few files of their own: `wgc.sh` keeps its lock and timer state in `/tmp/wgc.run` (RAM only), `wgcui.sh` writes the page data `status.js` into a web directory next to the page, and `.bak` copies of existing `services-start`, `post-mount` and `service-event` scripts are kept in `/jffs/addons/wgc/` before a line is added to them.
 
 ## Conf files
 
@@ -278,7 +278,7 @@ Web page only:
 sh /jffs/addons/wgc/wgcui.sh uninstall
 ```
 
-It removes the page, the menu entry, the `# wgc` lines in `post-mount` and `service-event` and the page's settings. It leaves `wgc.sh`, the confs, `rules` and the `firewall-start` line alone.
+It removes the page, the menu entry, the `# wgc` lines in `services-start`, `post-mount` and `service-event` and the page's settings. It leaves `wgc.sh`, the confs, `rules` and the `firewall-start` line alone.
 
 Everything:
 
@@ -311,7 +311,7 @@ If something goes wrong:
 - Deleting `/tmp/wgc.run` by hand while a `try` is pending disarms its timer.
 - If a process that is not `wgc.sh` holds the script's lock, `stop` takes it over after about 60 s (10 min if the holder looks like `wgc.sh`). `start`, `try` and `confirm` never do; they print the command to clear the lock.
 - Two narrow races remain, both reproducible only with artificial delays: three processes racing for a stale lock can lose a live lock, and a signal during the rename of the pending-`try` file can disarm an earlier `try`.
-- Not observed yet over days of uptime with rekeys and firmware firewall restarts. The web page has not been tested on a router without a USB drive.
+- Not observed yet over days of uptime with rekeys and firmware firewall restarts. The web page's restoration without USB is covered by a simulated reboot test; an actual reboot without USB has not yet been tested.
 
 ## Measured results
 

@@ -1,10 +1,10 @@
 #!/bin/sh
 # wgcui.sh - web UI page for wgc.sh on Asuswrt-Merlin (addon page + action handler)
 #
-#   wgcui.sh install          page + menu + web dir + status.js + post-mount line
+#   wgcui.sh install          page + menu + status.js + services-start/post-mount lines
 #   wgcui.sh enable-events    add the service-event line
 #   wgcui.sh set-level ro|full
-#   wgcui.sh mount            page + menu only (boot, from post-mount)
+#   wgcui.sh mount            page + menu + initial status (boot or USB mount)
 #   wgcui.sh status           regenerate status.js
 #   wgcui.sh service_event start wgcui   handle one action posted by the page
 #   wgcui.sh uninstall        undo install + enable-events
@@ -54,7 +54,7 @@ WGCUI_EXITIP_DROP=3600    # a failed ask drops a cached value older than this
 WGCUI_PAGE_MARK='<!-- wgcui-page -->'   # with our .title: an older version of our page
 
 # lines this script owns in /jffs/scripts (fixed paths on the router by design)
-PM_LINE='/jffs/addons/wgc/wgcui.sh mount >/dev/null 2>&1 & # wgc'
+MOUNT_LINE='/jffs/addons/wgc/wgcui.sh mount >/dev/null 2>&1 & # wgc'
 SE_LINE='if [ "$2" = "wgcui" ]; then /jffs/addons/wgc/wgcui.sh service_event "$@" & fi # wgc'
 OUR_LINES_RE='wgcui\.sh.*# wgc$'
 
@@ -1080,6 +1080,8 @@ webui_mount() {
     local s asp mark new_page new_title new_menu had_line
     asp="$WGC_DIR/wgcui.asp"
     [ -f "$asp" ] || { warn "missing $asp"; return 1; }
+    # The web directory lives in RAM; recreate it before copying the page.
+    mkdir -p "$WGCUI_WWW" || { warn "cannot create $WGCUI_WWW"; return 1; }
     s=$(pick_slot) || { warn "no free user page slot"; return 1; }
     mark="tabName: \"$WGCUI_TITLE\"}"
     new_page=0 new_title=0 new_menu=0 had_line=0
@@ -1175,7 +1177,8 @@ cmd_install() {
     webui_locked mount || die "page/menu install failed"
     mkdir -p "$WGCUI_WEBDIR" || die "cannot create $WGCUI_WEBDIR"
     status_now || warn "status.js not written"
-    script_add post-mount "$PM_LINE" || die "post-mount line not added"
+    script_add services-start "$MOUNT_LINE" || die "services-start line not added"
+    script_add post-mount "$MOUNT_LINE" || die "post-mount line not added"
     return 0
 }
 
@@ -1191,6 +1194,7 @@ cmd_uninstall() {
     local rc
     rc=0
     webui_locked unmount || { warn "page/menu removal incomplete"; rc=1; }
+    script_strip services-start || rc=1
     script_strip post-mount || rc=1
     script_strip service-event || rc=1
     if [ -d "$WGCUI_WEBDIR" ] && [ ! -L "$WGCUI_WEBDIR" ]; then

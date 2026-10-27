@@ -18,12 +18,12 @@ BASEPATH=$PATH
 PATH="$HERE/stubs:$ROOT/tests/stubs:$PATH"
 export PATH
 
-ALL="U01 U02 U03 U04 U05 U06 U07 U08 U09 U10 U11 U12 U13 U14 U15 U16 U17 U18 U19 U20 U21 U22 U23 U24 U25 U26 U27 U28 U29 U30 U31 U32 U33 U34 U35 U36 U37 U38 U39 U40 U41 U42 U43 U44 U45 U46 U47"
+ALL="U01 U02 U03 U04 U05 U06 U07 U08 U09 U10 U11 U12 U13 U14 U15 U16 U17 U18 U19 U20 U21 U22 U23 U24 U25 U26 U27 U28 U29 U30 U31 U32 U33 U34 U35 U36 U37 U38 U39 U40 U41 U42 U43 U44 U45 U46 U47 U48 U49"
 
 title() {
     case "$1" in
-    U01) echo "install: page, title, menu line, mount, post-mount, status.js; no service-event line" ;;
-    U02) echo "install twice: same state, one menu line, one post-mount line" ;;
+    U01) echo "install: page, menu, boot hooks, status.js; no service-event line" ;;
+    U02) echo "install twice: same state, one menu line, one line per boot hook" ;;
     U03) echo "foreign user1.asp: page goes to user2.asp" ;;
     U04) echo "enable-events: one service-event line, .bak, idempotent" ;;
     U05) echo "mount restores a deleted menu line, changes nothing else" ;;
@@ -68,6 +68,8 @@ title() {
     U45) echo "static guard: no command/type/hash builtin used (absent from the router ash)" ;;
     U46) echo "rule metadata: #off, name and desc from the trailing comment, rules_skipped" ;;
     U47) echo "saverules at ro keeps comments and #off byte for byte, check all once, no start" ;;
+    U48) echo "services-start restores the page after reboot without USB; late USB mount is idempotent" ;;
+    U49) echo "install creates executable services-start when absent; uninstall removes its line" ;;
     U30) echo "install + enable-events + uninstall leaves nothing, touches no wgc files" ;;
     esac
 }
@@ -205,9 +207,11 @@ setup() {
     cp "$WGCUI_SETTINGS" "$T/settings.seed"
     cp "$FIX/menuTree.js" "$WGCUI_MENUTREE"; cp "$FIX/menuTree.js" "$WGCUI_MENUTREE_SRC"
     printf '%s\n' '#!/bin/sh' '/jffs/scripts/other-addon mount # foreign' '/opt/bin/something start' > "$WGCUI_SCRIPTS/post-mount"
+    printf '%s\n' '#!/bin/sh' ': other-service # foreign' > "$WGCUI_SCRIPTS/services-start"
+    chmod 755 "$WGCUI_SCRIPTS/services-start"
     printf '%s\n' '#!/bin/sh' 'if [ "$2" = "wg_manager" ]; then /jffs/scripts/wg_manager.sh "$@" & fi # foreign' 'logger "service event $*"' > "$WGCUI_SCRIPTS/service-event"
     printf '%s\n' '#!/bin/sh' '/jffs/scripts/skynet firewall # foreign' 'echo fw-start' > "$WGCUI_SCRIPTS/firewall-start"
-    for f in post-mount service-event firewall-start; do cp "$WGCUI_SCRIPTS/$f" "$T/$f.seed"; done
+    for f in post-mount services-start service-event firewall-start; do cp "$WGCUI_SCRIPTS/$f" "$T/$f.seed"; done
     : > "$WGCUI_LEASES"; : > "$WGCUI_SYSLOG"
 }
 
@@ -301,7 +305,7 @@ SE_LINE='if [ "$2" = "wgcui" ]; then /jffs/addons/wgc/wgcui.sh service_event "$@
 # the line right after the first line containing fixed text $1 in menu
 menu_after() { awk -v p="$1" 'f { print; exit } index($0, p) { f = 1 }' "$WGCUI_MENUTREE"; }
 snap() {   # state of an installed world without volatile status.js
-    { ls -A "$WGCUI_WWW"; cat "$WGCUI_MENUTREE" "$WGCUI_SCRIPTS/post-mount" "$WGCUI_SCRIPTS/service-event"; cat "$WGCUI_WWW"/user*.title 2>/dev/null; } 2>/dev/null
+    { ls -A "$WGCUI_WWW"; cat "$WGCUI_MENUTREE" "$WGCUI_SCRIPTS/post-mount" "$WGCUI_SCRIPTS/services-start" "$WGCUI_SCRIPTS/service-event"; cat "$WGCUI_WWW"/user*.title 2>/dev/null; } 2>/dev/null
 }
 
 # ---------- tests ----------
@@ -320,6 +324,10 @@ t_U01() {
     [ -f "$WGC_DIR/post-mount.bak" ] || fail "post-mount.bak missing"
     cmp -s "$WGC_DIR/post-mount.bak" "$T/post-mount.seed" || fail "post-mount.bak is not the original"
     grep -v '# wgc$' "$WGCUI_SCRIPTS/post-mount" | cmp -s - "$T/post-mount.seed" || fail "foreign post-mount lines changed"
+    [ "$(grep -c '# wgc$' "$WGCUI_SCRIPTS/services-start")" = 1 ] || fail "services-start: not exactly one '# wgc' line"
+    grep -Fxq -- "$PM_LINE" "$WGCUI_SCRIPTS/services-start" || fail "services-start line differs from the expected line"
+    cmp -s "$WGC_DIR/services-start.bak" "$T/services-start.seed" || fail "services-start.bak is not the original"
+    grep -v '# wgc$' "$WGCUI_SCRIPTS/services-start" | cmp -s - "$T/services-start.seed" || fail "foreign services-start lines changed"
     assert_json "install"; assert_notpending "install"
     cmp -s "$WGCUI_SCRIPTS/service-event" "$T/service-event.seed" || fail "install touched service-event"
 }
@@ -334,6 +342,7 @@ t_U02() {
     cmp -s "$T/s1" "$T/s2" || fail "state differs after the second install"
     [ "$(menu_count 'tabName: "WireGuard Client"')" = 1 ] || fail "menu has $(menu_count 'tabName: "WireGuard Client"') entries"
     [ "$(grep -c '# wgc$' "$WGCUI_SCRIPTS/post-mount")" = 1 ] || fail "post-mount: not exactly one '# wgc' line"
+    [ "$(grep -c '# wgc$' "$WGCUI_SCRIPTS/services-start")" = 1 ] || fail "services-start: not exactly one '# wgc' line"
     [ -f "$WGCUI_WWW/user1.asp" ] && [ ! -f "$WGCUI_WWW/user2.asp" ] || fail "second install moved to another slot"
 }
 
@@ -698,7 +707,7 @@ t_U30() {
     [ ! -e "$WGCUI_WWW/wgc" ] || fail "webdir left"
     [ "$(menu_count 'tabName: "WireGuard Client"')" = 0 ] || fail "menu still has our line"
     cmp -s "$WGCUI_MENUTREE" "$FIX/menuTree.js" || fail "menu is not back to the original"
-    for f in post-mount service-event; do
+    for f in post-mount services-start service-event; do
         [ "$(grep -c '# wgc$' "$WGCUI_SCRIPTS/$f")" = 0 ] || fail "$f still has a '# wgc' line"
         cmp -s "$WGCUI_SCRIPTS/$f" "$T/$f.seed" || fail "$f is not back to the original"
     done
@@ -800,6 +809,7 @@ t_U32() {
     [ ! -e "$WGCUI_WWW/user1.title" ] || fail "user1.title left behind"
     cmp -s "$WGCUI_MENUTREE" "$T/menu.noanchor" || fail "menu changed"
     cmp -s "$WGCUI_SCRIPTS/post-mount" "$T/post-mount.seed" || fail "post-mount changed"
+    cmp -s "$WGCUI_SCRIPTS/services-start" "$T/services-start.seed" || fail "services-start changed"
 }
 
 t_U33() {
@@ -1129,6 +1139,44 @@ t_U47() {
     n=$(grep -ac '^wgc\.sh start' "$STUB_LOG")
     [ "$n" = 0 ] || fail "start was called $n time(s) at level ro"
     assert_keys_gone "saverules at ro"; assert_json "saverules at ro"
+}
+
+t_U48() {
+    run install; assert_rc 0 "install"
+    cp "$SCRIPT" "$WGC_DIR/wgcui.sh"; chmod 755 "$WGC_DIR/wgcui.sh"
+    # A reboot loses all web files and the menu copy. Do not run post-mount:
+    # services-start must restore everything even when no USB disk appears.
+    rm -rf "$WGCUI_WWW"
+    rm -f "$WGCUI_MENUTREE"
+    cp "$FIX/menuTree.js" "$WGCUI_MENUTREE_SRC"
+    : > "$STUB_LOG"
+    sed "s|/jffs/addons/wgc/|$WGC_DIR/|g" "$WGCUI_SCRIPTS/services-start" > "$T/boot.sh"
+    printf '\nwait\n' >> "$T/boot.sh"
+    "${TEST_SH:-sh}" "$T/boot.sh"
+    cmp -s "$WGCUI_WWW/user1.asp" "$WGC_DIR/wgcui.asp" || fail "services-start did not restore the page without USB"
+    [ "$(cat "$WGCUI_WWW/user1.title" 2>/dev/null)" = "WireGuard Client" ] || fail "services-start did not restore the title"
+    [ "$(menu_count 'tabName: "WireGuard Client"')" = 1 ] || fail "services-start did not restore one menu entry"
+    assert_json "services-start without USB"
+    assert_noact "services-start without USB"
+    assert_locked "services-start without USB"
+    snap > "$T/boot.snap"
+    cp "$SJS" "$T/boot.status" 2>/dev/null
+    # A late USB mount uses the same command; it must preserve the boot result.
+    run mount; assert_rc 0 "late post-mount"
+    snap > "$T/usb.snap"
+    cmp -s "$T/boot.snap" "$T/usb.snap" || fail "late USB mount changed the installed state"
+    cmp -s "$T/boot.status" "$SJS" || fail "late USB mount changed existing status"
+    assert_noact "late post-mount"
+}
+
+t_U49() {
+    rm -f "$WGCUI_SCRIPTS/services-start"
+    run install; assert_rc 0 "install"
+    [ -x "$WGCUI_SCRIPTS/services-start" ] || fail "new services-start is not executable"
+    [ "$(head -n 1 "$WGCUI_SCRIPTS/services-start")" = '#!/bin/sh' ] || fail "new services-start has no shebang"
+    grep -Fxq -- "$PM_LINE" "$WGCUI_SCRIPTS/services-start" || fail "new services-start has no mount command"
+    run uninstall; assert_rc 0 "uninstall"
+    [ "$(cat "$WGCUI_SCRIPTS/services-start")" = '#!/bin/sh' ] || fail "uninstall left boot code behind"
 }
 
 # ---------- main ----------

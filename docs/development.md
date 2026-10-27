@@ -51,7 +51,7 @@ The script only touches interfaces `wgc1`..`wgc5`, tables 121-125, `ip rule` pri
 tests/run.sh                 engine suite, T01..T53
 tests/stubs/                 fake ip, wg, iptables, modprobe, logger, sleep; failing mktemp, od, id
 tests/fixtures/              split.conf, full.conf (fake keys)
-tests/ui/run.sh              handler suite, U01..U47
+tests/ui/run.sh              handler suite, U01..U49
 tests/ui/stubs/              fake wgc.sh, mount, umount, flock
 tests/ui/fixtures/           menuTree.js, dnsmasq leases, syslog
 tests/ui/page/               Playwright suite for the page (page.spec.mjs, serve.mjs, drive.mjs)

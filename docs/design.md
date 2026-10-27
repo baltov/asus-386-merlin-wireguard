@@ -195,7 +195,7 @@ This follows the Merlin add-on API, the same way other add-ons such as uiDivStat
 - Slot: for `user1.asp` .. `user20.asp`, a slot is ours if its md5 equals that of `wgcui.asp`, or if it contains the marker `<!-- wgcui-page -->` and its `.title` file holds our title. Otherwise the first free slot is used. No free slot is exit 1.
 - Under `flock` on `/tmp/addonwebui.lock` (the lock all add-ons share): copy the page, write `userN.title` ("WireGuard Client"), copy `/www/require/modules/menuTree.js` to `/tmp/menuTree.js` if there is no copy yet, insert our menu line after the line for `Advanced_VPNClient_Content.asp` (fallback: after `Advanced_SwitchCtrl_Content.asp`), then `umount` and `mount -o bind` the copy over the original. Our menu line is found and removed by our title only, so another add-on's line is never touched.
 - `mkdir /www/user/wgc` and a first `status.js`.
-- `/jffs/scripts/post-mount` gets `/jffs/addons/wgc/wgcui.sh mount >/dev/null 2>&1 & # wgc`, after a copy to `post-mount.bak`. `/www/user` is on tmpfs, so after a reboot `mount` puts the page, the menu entry and a first `status.js` back.
+- `/jffs/scripts/services-start` and `/jffs/scripts/post-mount` each get `/jffs/addons/wgc/wgcui.sh mount >/dev/null 2>&1 & # wgc`, after backing up each existing hook. `services-start` restores the page after system services start, without depending on USB; `post-mount` also restores it when a USB partition mounts. `/www/user` is on tmpfs, so `mount` recreates the web directory, page, menu entry and initial `status.js` after reboot. Repeated calls keep one page and one menu entry.
 - If `install` fails halfway, it takes back only what that run added. An existing menu line of ours stays.
 
 `enable-events` adds one line to `/jffs/scripts/service-event`, after a copy to `service-event.bak`:
@@ -206,7 +206,7 @@ if [ "$2" = "wgcui" ]; then /jffs/addons/wgc/wgcui.sh service_event "$@" & fi # 
 
 The match on the name is exact. A substring match (`grep -q`) as some add-ons use it would also fire for other names that contain ours.
 
-Both script lines are idempotent: our old lines are removed before the new one is added, other lines keep their bytes and the file keeps its inode and mode. `uninstall` strips our lines from both files, removes the menu line and remounts, deletes the slot's page and title, the web directory, the `wgcui_*` settings and `wgcui.level`. It does not touch `firewall-start`, `wgc.sh`, the confs or `rules`. The `.bak` files are kept on purpose, so install plus uninstall is not byte-identical in the `/jffs/addons/wgc` directory.
+All hook lines are idempotent: our old lines are removed before the new one is added, other lines keep their bytes and the file keeps its inode and mode. `uninstall` strips our lines from `services-start`, `post-mount` and `service-event`, removes the menu line and remounts, deletes the slot's page and title, the web directory, the `wgcui_*` settings and `wgcui.level`. It does not touch `firewall-start`, `wgc.sh`, the confs or `rules`. The `.bak` files are kept on purpose, so install plus uninstall is not byte-identical in the `/jffs/addons/wgc` directory.
 
 ### From button to result
 
